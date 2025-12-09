@@ -1,0 +1,42 @@
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /home/kioh/package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /home/kioh/benq/pnpm-lock.yaml
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /home/kioh/package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /home/kioh/benq/pnpm-lock.yaml
+
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ⨯ [next]/internal/font/google/geist_a71539c9.module.css:26:9
+Module not found: Can't resolve '@vercel/turbopack-next/internal/font/google/font'
+[0m [90m 24 |[39m   font[33m-[39mdisplay[33m:[39m swap[33m;[39m
+ [90m 25 |[39m   src[33m:[39m url([33m@[39mvercel[33m/[39mturbopack[33m-[39mnext[33m/[39minternal[33m/[39mfont[33m/[39mgoogle[35m/font?{%22url%22:%22https:/[39m[33m/[39mfonts[33m.[39mgstatic[33m.[39mcom[33m/[39ms[33m/[39mgeist[33m/[39mv4[33m/[39mgyByhwUxId8gMEwcGFWNOITd[33m.[39mwoff2[33m%[39m[35m22[39m[33m,[39m[33m%[39m[35m22[39mpreload[33m%[39m[35m22[39m[33m:[39m[36mtrue[39m[33m,[39m[33m%[39m[35m22[39mhas_size_adjust[33m%[39m[35m22[39m[33m:[39m[36mtrue[39m}) format([32m'woff2'[39m)[33m;[39m
+[31m[1m>[22m[39m[90m 26 |[39m   unicode[33m-[39mrange[33m:[39m [33mU[39m[33m+[39m[35m0000[39m[33m-[39m[35m00[39m[33mFF[39m[33m,[39m [33mU[39m[33m+[39m[35m0131[39m[33m,[39m [33mU[39m[33m+[39m[35m0152[39m[33m-[39m[35m0153[39m[33m,[39m [33mU[39m[33m+[39m[35m02[39m[33mBB[39m[33m-[39m[35m02[39m[33mBC[39m[33m,[39m [33mU[39m[33m+[39m[35m02[39m[33mC6[39m[33m,[39m [33mU[39m[33m+[39m[35m02[39m[33mDA[39m[33m,[39m [33mU[39m[33m+[39m[35m02[39m[33mDC[39m[33m,[39m [33mU[39m[33m+[39m[35m0304[39m[33m,[39m [33mU[39m[33m+[39m[35m0308[39m[33m,[39m [33mU[39m[33m+[39m[35m0329[39m[33m,[39m [33mU[39m[33m+[39m[35m2000[39m[33m-[39m[35m206[39m[33mF[39m[33m,[39m [33mU[39m[33m+[39m[35m20[39m[33mAC[39m[33m,[39m [33mU[39m[33m+[39m[35m2122[39m[33m,[39m [33mU[39m[33m+[39m[35m2191[39m[33m,[39m [33mU[39m[33m+[39m[35m2193[39m[33m,[39m [33mU[39m[33m+[39m[35m2212[39m[33m,[39m [33mU[39m[33m+[39m[35m2215[39m[33m,[39m [33mU[39m[33m+[39m[33mFEFF[39m[33m,[39m [33mU[39m[33m+[39m[33mFFFD[39m[33m;[39m
+ [90m    |[39m         [31m[1m^[22m[39m
+ [90m 27 |[39m }
+ [90m 28 |[39m [33m@[39mfont[33m-[39mface {
+ [90m 29 |[39m     font[33m-[39mfamily[33m:[39m [32m'Geist Fallback'[39m[33m;[39m[0m
+
+Import map: Resolved by import map
+
+
+Import trace:
+  Server Component:
+    [next]/internal/font/google/geist_a71539c9.module.css
+    [next]/internal/font/google/geist_a71539c9.js
+    ./benq/app/layout.tsx
+
+https://nextjs.org/docs/messages/module-not-found
+
+
+ ⚠ [next]/internal/font/google/caa3a2e1cccd8315-s.p.woff2
+Error while requesting resource
+There was an issue establishing a connection while requesting https://fonts.gstatic.com/s/geist/v4/gyByhwUxId8gMEwcGFWNOITd.woff2
+
+
