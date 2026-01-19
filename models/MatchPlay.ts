@@ -1,7 +1,6 @@
-// models/Match.ts
 import mongoose, { Schema, models } from "mongoose";
 
-const matchSchema = new Schema(
+const matchPlaySchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, required: true, ref: "User" },
     mode: { type: String, enum: ["single", "multi"], required: true },
@@ -9,4 +8,4 @@ const matchSchema = new Schema(
   { timestamps: true }
 );
 
-export default models.Match || mongoose.model("Match", matchSchema, "matches");
+export default models.MatchPlay || mongoose.model("MatchPlay", matchPlaySchema);

@@ -21,9 +21,9 @@ export default function MatchClient() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [status, setStatus] = useState("waiting"); // waiting | countdown | playing | ended
-  const [countdown, setCountdown] = useState<number>(3);
-  const [timeLeft, setTimeLeft] = useState<number>(30);
+  const [status, setStatus] = useState("idle"); // idle | waiting | countdown | playing | ended
+  const [countdown, setCountdown] = useState(3);
+  const [timeLeft, setTimeLeft] = useState(30);
   const [totalQuestions, setTotalQuestions] = useState(0);
 
   useEffect(() => {
@@ -31,17 +31,33 @@ export default function MatchClient() {
 
     socket = io(WS_URL, { transports: ["websocket"] });
 
-    socket.emit("joinQueue", { userId });
+    socket.on("connect", () => {
+      socket!.emit("registerUser", { userId });
+      socket!.emit("joinQueue", { userId });
+    });
 
-    socket.on("match", ({ roomId, players, totalQuestions }) => {
+    socket.on("queueAccepted", () => setStatus("waiting"));
+
+    socket.on("queueDenied", ({ reason, roomId }) => {
+      if (reason === "alreadyQueued") {
+        setStatus("waiting");
+      }
+      if (reason === "alreadyInMatch") {
+        setStatus("playing");
+        setRoomId(roomId);
+        socket!.emit("requestMatchSync", { roomId });
+      }
+    });
+
+    socket.on("match", ({ roomId, totalQuestions }) => {
       setRoomId(roomId);
       setTotalQuestions(totalQuestions);
       setStatus("countdown");
     });
 
-    socket.on("countdown", (t) => setCountdown(t));
+    socket.on("countdown", setCountdown);
     socket.on("gameStart", () => setStatus("playing"));
-    socket.on("timer", (t) => setTimeLeft(t));
+    socket.on("timer", setTimeLeft);
 
     socket.on("nextQuestion", ({ questionIndex, question, scores }) => {
       setQuestionIndex(questionIndex);
@@ -57,40 +73,41 @@ export default function MatchClient() {
       setStatus("ended");
     });
 
-    socket.on("disconnect", () => {
-      console.warn("⚠️ WS Disconnected");
-    });
-
+    // CLEANUP — does NOT end match on refresh
     return () => {
+      if (status === "waiting") {
+        socket?.emit("leaveQueue");
+      }
       socket?.off();
       socket?.close();
     };
-  }, [userId]);
+  }, [userId, status]);
 
   const sendAnswer = (answer: string) => {
     if (!socket || !roomId) return;
+
     socket.emit("submitAnswer", {
       roomId,
       userId,
       questionIndex,
       answer,
     });
+
     setQuestion(null);
   };
 
   if (!userId) return <p>🔒 Please login first</p>;
 
-  // Opponent score logic
   const opponentId = Object.keys(scores).find((id) => id !== userId);
   const opponentScore = opponentId ? scores[opponentId] || 0 : 0;
-  const myScore = scores[userId!] || 0;
+  const myScore = scores[userId] || 0;
 
   return (
     <div className="p-5 text-center max-w-lg mx-auto text-lg">
       <h1 className="font-bold text-2xl mb-4">Real-time Match</h1>
 
+      {status === "idle" && <p>⏳ Initializing…</p>}
       {status === "waiting" && <p>⏳ Matching…</p>}
-
       {status === "countdown" && (
         <p className="text-3xl font-bold">⏱ Starting in {countdown}s…</p>
       )}
@@ -128,8 +145,8 @@ export default function MatchClient() {
           <h2 className="text-2xl font-bold mt-4">🏁 Match Over!</h2>
 
           <div className="mt-3 space-y-1 text-lg">
-            <p>✨ <strong>You</strong>: {myScore} points</p>
-            <p>👤 Opponent: {opponentScore} points</p>
+            <p>✨ Your Score: {myScore}</p>
+            <p>👤 Opponent Score: {opponentScore}</p>
           </div>
 
           <p className="mt-4 font-bold">
