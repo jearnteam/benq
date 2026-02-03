@@ -6,8 +6,12 @@ export async function connectDB() {
   if (isConnected) return;
 
   const uri = process.env.MONGODB_URI;
-  await mongoose.connect(uri);
+  if (!uri) {
+    throw new Error("❌ MONGODB_URI is undefined (env not loaded)");
+  }
 
+  await mongoose.connect(uri);
   isConnected = true;
+
   console.log("📡 MongoDB connected (Realtime Server)");
 }

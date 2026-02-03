@@ -35,7 +35,7 @@ export default function QuizPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <label className="text-sm">Name</label>
+        <label className="text-sm">hello</label>
         <input
           value={userName}
           onChange={(e) => setUserName(e.target.value)}

@@ -12,20 +12,31 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
   ],
+
   secret: process.env.NEXTAUTH_SECRET,
+
+  // ✅ IMPORTANT: force JWT session
+  session: {
+    strategy: "jwt",
+  },
+
   callbacks: {
+    /* ----------------------------------------
+     * SIGN IN (CREATE / UPDATE USER)
+     * -------------------------------------- */
     async signIn({ user }) {
+      if (!user.id || !user.email) return false;
+
       await connectDB();
 
-      // googleId = user.id coming from Google
       const existing = await UserModel.findOne({ googleId: user.id });
 
       if (!existing) {
         await UserModel.create({
           googleId: user.id,
           email: user.email,
-          name: user.name,
-          image: user.image,
+          name: user.name ?? "",
+          image: user.image ?? null,
           lastLogin: new Date(),
         });
       } else {
@@ -36,10 +47,33 @@ export const authOptions: NextAuthOptions = {
       return true;
     },
 
+    /* ----------------------------------------
+     * JWT (SERVER SINGLE SOURCE OF TRUTH)
+     * -------------------------------------- */
+    async jwt({ token }) {
+      // token.email is stable
+      if (!token.email) return token;
+
+      await connectDB();
+      const user = await UserModel.findOne({ email: token.email });
+
+      if (!user) return token;
+
+      // 🔐 enrich JWT
+      token.uid = user._id.toString();
+      
+      token.googleId = user.googleId;
+
+      return token;
+    },
+
+    /* ----------------------------------------
+     * SESSION (CLIENT SAFE COPY)
+     * -------------------------------------- */
     async session({ session, token }) {
-      // token.sub is the user _id from DB by default
-      if (token.sub && session.user) {
-        (session.user as any).id = token.sub;
+      if (session.user) {
+        (session.user as any).id = token.uid;
+        (session.user as any).role = token.role;
       }
       return session;
     },

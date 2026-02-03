@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
 const QuestionSchema = new mongoose.Schema({
-  level: { type: String, default: "N5" }, // JLPT level
+  level: { type: String, default: "N5" },
   text: { type: String, required: true },
-  options: { type: [String], required: true }, // 4 choices
-  answer: { type: Number, required: true }, // index 0-3
+  options: { type: [String], required: true },
+  answer: { type: Number, required: true }, // index
 });
 
 export default mongoose.models.Question ||
