@@ -1,11 +1,20 @@
-import AuthButton from "@/components/AuthButton";
+import AuthCard from "@/components/AuthCard";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <h1 className="text-2xl font-bold mb-4">Welcome to BenQ 🚀</h1>
-        <AuthButton />
+    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center">
+      <main className="w-full max-w-md px-4 sm:px-6">
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6 sm:p-8 space-y-6 text-center">
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+            Welcome to <span className="text-emerald-600">BenQ</span>
+          </h1>
+
+          <p className="text-sm text-gray-600">
+            Learn consistently. Track your effort. Improve every day.
+          </p>
+
+          <AuthCard />
+        </div>
       </main>
     </div>
   );

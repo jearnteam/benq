@@ -1,14 +1,34 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import User from "@/models/User";
 
-export async function GET() {
+const LEVELS = ["N5", "N4", "N3", "N2", "N1"] as const;
+type Level = (typeof LEVELS)[number];
+
+function isLevel(value: string | null): value is Level {
+  return LEVELS.includes(value as Level);
+}
+
+export async function GET(req: NextRequest) {
+  const levelParam = req.nextUrl.searchParams.get("level");
+
+  const level: Level = isLevel(levelParam) ? levelParam : "N5";
+
   await connectDB();
-  const top = await User.find()
-    .sort({ streak: -1, createdAt: 1 })
+
+  const users = await User.find()
+    .sort({ [`ranks.${level}.rating`]: -1 })
     .limit(50)
     .lean();
+
   return NextResponse.json({
-    top: top.map((u) => ({ name: u.name, streak: u.streak })),
+    level,
+    top: users.map((u: any) => ({
+      name: u.username,
+      rating: u.ranks?.[level]?.rating ?? 0,
+      wins: u.ranks?.[level]?.wins ?? 0,
+      losses: u.ranks?.[level]?.losses ?? 0,
+      draws: u.ranks?.[level]?.draws ?? 0,
+    })),
   });
 }

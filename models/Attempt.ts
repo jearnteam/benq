@@ -1,14 +1,33 @@
-import { Schema, model, models, Types } from "mongoose";
+import mongoose from "mongoose";
 
-const AttemptSchema = new Schema(
+const AttemptSchema = new mongoose.Schema(
   {
-    userId: { type: Types.ObjectId, ref: "User", required: true },
-    correct: { type: Number, required: true },
-    total: { type: Number, required: true },
-    // store which day this attempt belongs to
-    day: { type: String, required: true }, // yyyy-MM-dd
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    correct: Number,
+    total: Number,
+
+    // yyyy-MM-dd (used for streak / heatmap)
+    day: {
+      type: String,
+      index: true,
+    },
+
+    // NEW ✅
+    mode: {
+      type: String,
+      enum: ["normal", "rank"],
+      default: "normal",
+      index: true,
+    },
   },
   { timestamps: true }
 );
 
-export default models.Attempt || model("Attempt", AttemptSchema);
+export default mongoose.models.Attempt ||
+  mongoose.model("Attempt", AttemptSchema);

@@ -1,15 +1,106 @@
-import mongoose from "mongoose";
+import mongoose, { Schema } from "mongoose";
 
-const UserSchema = new mongoose.Schema({
-  googleId: { type: String, unique: true },
-  email: String,
-  name: String,
-  image: String,
+const UserSchema = new Schema(
+  {
+    // ───── Auth ─────
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
 
-  currentRoom: { type: String, default: null },
-  role: { type: String, enum: ["p1", "p2", null], default: null },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
 
-  lastLogin: Date,
-});
+    image: {
+      type: String,
+      default: null,
+    },
+
+    // Google display name (read-only)
+    displayName: {
+      type: String,
+      default: "",
+    },
+
+    // ✅ BenQ username (mutable, unique)
+    username: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+      lowercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 20,
+    },
+
+    // ───── App data ─────
+    ranks: {
+      N5: {
+        rating: { type: Number, default: 1000 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+      },
+      N4: {
+        rating: { type: Number, default: 1000 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+      },
+      N3: {
+        rating: { type: Number, default: 1000 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+      },
+      N2: {
+        rating: { type: Number, default: 1000 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+      },
+      N1: {
+        rating: { type: Number, default: 1000 },
+        wins: { type: Number, default: 0 },
+        losses: { type: Number, default: 0 },
+        draws: { type: Number, default: 0 },
+      },
+    },
+
+    streak: {
+      type: Number,
+      default: 0,
+    },
+
+    lastStudyDate: {
+      type: Date,
+      default: null,
+    },
+
+    currentRoom: {
+      type: String,
+      default: null,
+    },
+
+    role: {
+      type: String,
+      enum: ["p1", "p2"],
+      default: null,
+    },
+
+    lastLogin: {
+      type: Date,
+      default: null,
+    },
+  },
+  { timestamps: true }
+);
 
 export default mongoose.models.User || mongoose.model("User", UserSchema);

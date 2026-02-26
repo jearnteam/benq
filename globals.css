@@ -1,0 +1,12 @@
+@import "tailwindcss/preflight";
+@import "tailwindcss/theme";
+@import "tailwindcss/utilities";
+
+html {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f9fafb !important;
+  color: #111827 !important;
+}

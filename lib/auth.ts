@@ -1,7 +1,5 @@
-// lib/auth.ts
 import GoogleProvider from "next-auth/providers/google";
 import type { NextAuthOptions } from "next-auth";
-import type { JWT } from "next-auth/jwt";
 import { connectDB } from "@/lib/db";
 import UserModel from "@/models/User";
 
@@ -15,27 +13,29 @@ export const authOptions: NextAuthOptions = {
 
   secret: process.env.NEXTAUTH_SECRET,
 
-  // ✅ IMPORTANT: force JWT session
   session: {
     strategy: "jwt",
   },
 
   callbacks: {
     /* ----------------------------------------
-     * SIGN IN (CREATE / UPDATE USER)
+     * SIGN IN
      * -------------------------------------- */
     async signIn({ user }) {
       if (!user.id || !user.email) return false;
-
+    
       await connectDB();
-
-      const existing = await UserModel.findOne({ googleId: user.id });
-
+    
+      const existing = await UserModel.findOne({
+        googleId: user.id,
+      });
+    
       if (!existing) {
         await UserModel.create({
           googleId: user.id,
           email: user.email,
-          name: user.name ?? "",
+          displayName: user.name ?? "",
+          username: null, // ✅ important
           image: user.image ?? null,
           lastLogin: new Date(),
         });
@@ -43,38 +43,40 @@ export const authOptions: NextAuthOptions = {
         existing.lastLogin = new Date();
         await existing.save();
       }
-
+    
       return true;
     },
 
     /* ----------------------------------------
-     * JWT (SERVER SINGLE SOURCE OF TRUTH)
+     * JWT
      * -------------------------------------- */
-    async jwt({ token }) {
-      // token.email is stable
+    async jwt({ token, trigger }) {
       if (!token.email) return token;
-
+    
       await connectDB();
-      const user = await UserModel.findOne({ email: token.email });
-
-      if (!user) return token;
-
-      // 🔐 enrich JWT
-      token.uid = user._id.toString();
-      
-      token.googleId = user.googleId;
-
+    
+      const dbUser = await UserModel.findOne({
+        email: token.email,
+      }).select("_id googleId username");
+    
+      if (!dbUser) return token;
+    
+      token.uid = dbUser._id.toString();
+      token.googleId = dbUser.googleId;
+      token.username = dbUser.username ?? null;
+    
       return token;
     },
 
     /* ----------------------------------------
-     * SESSION (CLIENT SAFE COPY)
+     * SESSION
      * -------------------------------------- */
     async session({ session, token }) {
       if (session.user) {
-        (session.user as any).id = token.uid;
-        (session.user as any).role = token.role;
+        (session.user as any).id = token.uid as string;
+        (session.user as any).username = token.username ?? null;
       }
+    
       return session;
     },
   },

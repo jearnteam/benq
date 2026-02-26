@@ -3,6 +3,7 @@ import { WebSocketServer } from "ws";
 import crypto from "crypto";
 import Question from "./models/Question.js";
 import Match from "./models/Match.js";
+import User from "./models/User.js";
 import { connectDB } from "./db.js";
 
 await connectDB();
@@ -16,7 +17,13 @@ console.log("⚡ WS running :5000");
 ========================= */
 const clients = new Map(); // userId -> ws
 const activeConnection = new Map(); // userId -> ws (newest wins)
-const queue = [];
+const queue = {
+  N5: [],
+  N4: [],
+  N3: [],
+  N2: [],
+  N1: [],
+};
 const rooms = new Map();
 const userRoom = new Map();
 
@@ -120,11 +127,18 @@ wss.on("connection", (ws) => {
       }
       if (userRoom.has(data.userId)) return;
 
-      if (!queue.includes(data.userId)) queue.push(data.userId);
-      if (queue.length >= 2) createMatch();
+      const level = data.level || "N5";
+
+      if (!queue[level].includes(data.userId)) {
+        queue[level].push(data.userId);
+      }
+
+      if (queue[level].length >= 2) {
+        createMatch(level);
+      }
       return;
     }
-
+    /* ---------- ANSWER ---------- */
     /* ---------- ANSWER ---------- */
     if (data.type === "answer") {
       const room = rooms.get(data.roomId);
@@ -133,12 +147,21 @@ wss.on("connection", (ws) => {
       const player = room.players.find((p) => p.userId === data.userId);
       if (!player || player.finished) return;
 
-      const q = room.questions[player.progress];
-      if (q.answer === data.answerIndex) player.score++;
+      const qIndex = player.progress;
+      const q = room.questions[qIndex];
+
+      // store answer
+      player.answers[qIndex] = data.answerIndex;
+
+      if (q.answer === data.answerIndex) {
+        player.score++;
+      }
 
       player.progress++;
 
-      broadcast(room, "scoreUpdate", { scores: buildScores(room) });
+      broadcast(room, "scoreUpdate", {
+        scores: buildScores(room),
+      });
 
       if (player.progress >= room.questions.length) {
         player.finished = true;
@@ -156,7 +179,6 @@ wss.on("connection", (ws) => {
         question: room.questions[player.progress],
         totalQuestions: room.questions.length,
       });
-      
     }
   });
 
@@ -171,16 +193,16 @@ wss.on("connection", (ws) => {
 /* =========================
    Match Flow
 ========================= */
-async function createMatch() {
-  const u1 = queue.shift();
-  const u2 = queue.shift();
+async function createMatch(level) {
+  const u1 = queue[level].shift();
+  const u2 = queue[level].shift();
 
   const ws1 = clients.get(u1);
   const ws2 = clients.get(u2);
   if (!ws1 || !ws2) return;
 
   const questions = await Question.aggregate([
-    { $match: { level: "N5" } },
+    { $match: { level } },
     { $sample: { size: 5 } },
   ]);
 
@@ -188,13 +210,29 @@ async function createMatch() {
 
   const room = {
     roomId,
+    level,
     questions,
     status: "starting",
     remainingTime: 30,
     startCountdown: 3,
+    questionIndex: 0,
     players: [
-      { userId: u1, ws: ws1, score: 0, progress: 0, finished: false },
-      { userId: u2, ws: ws2, score: 0, progress: 0, finished: false },
+      {
+        userId: u1,
+        ws: ws1,
+        score: 0,
+        progress: 0,
+        finished: false,
+        answers: [],
+      },
+      {
+        userId: u2,
+        ws: ws2,
+        score: 0,
+        progress: 0,
+        finished: false,
+        answers: [],
+      },
     ],
   };
 
@@ -221,20 +259,24 @@ async function createMatch() {
 
 function startMatch(room) {
   room.status = "playing";
+  room.questionIndex = 0;
+  room.remainingTime = 30;
 
   broadcast(room, "matchStart", {});
   broadcast(room, "nextQuestion", {
     roomId: room.roomId,
-    questionIndex: 0,
-    question: room.questions[0],
+    questionIndex: room.questionIndex,
+    question: room.questions[room.questionIndex],
     totalQuestions: room.questions.length,
   });
-  
 
   room.timer = setInterval(() => {
     room.remainingTime--;
     broadcast(room, "tick", { remainingTime: room.remainingTime });
-    if (room.remainingTime <= 0) endMatch(room.roomId);
+
+    if (room.remainingTime <= 0) {
+      endMatch(room.roomId);
+    }
   }, 1000);
 }
 
@@ -246,7 +288,17 @@ async function endMatch(roomId) {
   clearInterval(room.timer);
 
   const scores = buildScores(room);
-  broadcast(room, "quizEnd", { scores });
+  broadcast(room, "quizEnd", {
+    scores,
+    questions: room.questions.map((q) => ({
+      text: q.text,
+      options: q.options,
+      correctAnswer: q.answer,
+    })),
+    playerAnswers: Object.fromEntries(
+      room.players.map((p) => [p.userId, p.answers])
+    ),
+  });
 
   for (const p of room.players) {
     userRoom.delete(p.userId);
@@ -279,6 +331,56 @@ async function endMatch(roomId) {
     winnerId,
     isDraw,
   });
+
+  async function updateRatings(players, winnerId, isDraw, level) {
+    const K = 32;
+
+    const userA = await User.findById(players[0].userId);
+    const userB = await User.findById(players[1].userId);
+
+    if (!userA || !userB) return;
+
+    const Ra = userA.ranks[level].rating;
+    const Rb = userB.ranks[level].rating;
+
+    const Ea = 1 / (1 + Math.pow(10, (Rb - Ra) / 400));
+    const Eb = 1 / (1 + Math.pow(10, (Ra - Rb) / 400));
+
+    let Sa, Sb;
+
+    if (isDraw) {
+      Sa = 0.5;
+      Sb = 0.5;
+      userA.ranks[level].draws++;
+      userB.ranks[level].draws++;
+    } else if (winnerId === userA._id.toString()) {
+      Sa = 1;
+      Sb = 0;
+      userA.ranks[level].wins++;
+      userB.ranks[level].losses++;
+    } else {
+      Sa = 0;
+      Sb = 1;
+      userA.ranks[level].losses++;
+      userB.ranks[level].wins++;
+    }
+
+    userA.ranks[level].rating = Math.round(Ra + K * (Sa - Ea));
+    userB.ranks[level].rating = Math.round(Rb + K * (Sb - Eb));
+
+    await userA.save();
+    await userB.save();
+  }
+
+  function getTier(rating) {
+    if (rating >= 2000) return "N1";
+    if (rating >= 1700) return "N2";
+    if (rating >= 1400) return "N3";
+    if (rating >= 1200) return "N4";
+    return "N5";
+  }
+
+  await updateRatings(players, winnerId, isDraw, room.level);
 
   rooms.delete(roomId);
 }
