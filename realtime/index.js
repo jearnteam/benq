@@ -7,16 +7,16 @@ import User from "./models/User.js";
 import { connectDB } from "./db.js";
 
 await connectDB();
-console.log("📡 MongoDB connected");
-
 const wss = new WebSocketServer({ port: 5000, path: "/realtime" });
-console.log("⚡ WS running :5000");
 
 /* =========================
    State
 ========================= */
-const clients = new Map(); // userId -> ws
-const activeConnection = new Map(); // userId -> ws (newest wins)
+const clients = new Map(); // userId -> ws (last seen)
+const activeConnection = new Map(); // userId -> ws (newest tab wins)
+const userRoom = new Map(); // userId -> roomId
+const rooms = new Map(); // roomId -> room
+
 const queue = {
   N5: [],
   N4: [],
@@ -24,24 +24,52 @@ const queue = {
   N2: [],
   N1: [],
 };
-const rooms = new Map();
-const userRoom = new Map();
+
+const matchingInProgress = {
+  N5: false,
+  N4: false,
+  N3: false,
+  N2: false,
+  N1: false,
+};
 
 /* =========================
    Helpers
 ========================= */
 function send(ws, type, payload = {}) {
-  if (ws?.readyState === 1) {
-    ws.send(JSON.stringify({ type, ...payload }));
-  }
+  if (ws?.readyState === 1) ws.send(JSON.stringify({ type, ...payload }));
 }
 
 function broadcast(room, type, payload = {}) {
-  room.players.forEach((p) => send(p.ws, type, payload));
+  for (const p of room.players) send(p.ws, type, payload);
 }
 
 function buildScores(room) {
   return Object.fromEntries(room.players.map((p) => [p.userId, p.score]));
+}
+
+function removeFromQueue(userId) {
+  for (const level of Object.keys(queue)) {
+    queue[level] = queue[level].filter((u) => u !== userId);
+  }
+}
+
+/**
+ * Try to start matches for a level.
+ * Locked per level so we never create two matches concurrently.
+ */
+async function tryMatchmake(level) {
+  if (matchingInProgress[level]) return;
+
+  if (queue[level].length < 2) return;
+
+  matchingInProgress[level] = true;
+
+  const ok = await createMatch(level);
+
+  if (!ok) {
+    matchingInProgress[level] = false;
+  }
 }
 
 /* =========================
@@ -61,15 +89,14 @@ wss.on("connection", (ws) => {
       ws.userId = data.userId;
       clients.set(data.userId, ws);
 
-      // 🔥 NEWEST TAB WINS
+      // newest tab wins
       const prev = activeConnection.get(data.userId);
-      if (prev && prev !== ws) {
-        send(prev, "passive");
-      }
+      if (prev && prev !== ws) send(prev, "passive");
+
       activeConnection.set(data.userId, ws);
       send(ws, "active");
 
-      // 🔁 REJOIN (CRITICAL FIX)
+      // rejoin if in room
       if (userRoom.has(data.userId)) {
         const roomId = userRoom.get(data.userId);
         const room = rooms.get(roomId);
@@ -78,40 +105,48 @@ wss.on("connection", (ws) => {
         const player = room.players.find((p) => p.userId === data.userId);
         if (!player) return;
 
-        // 🔥 REBIND SOCKET
         player.ws = ws;
 
-        // 🔥 PUSH AUTHORITATIVE STATE
         if (room.status === "ended") {
           send(ws, "quizEnd", {
             roomId: room.roomId,
             scores: buildScores(room),
+            questions: room.questions.map((q) => ({
+              questionParts: q.questionParts,
+              options: q.options,
+              correctAnswer: q.answer,
+            })),
+            playerAnswers: Object.fromEntries(
+              room.players.map((p) => [p.userId, p.answers])
+            ),
           });
           return;
         }
 
         if (player.finished) {
-          send(ws, "waitingOpponent", {
+          send(ws, "waitingOpponent", { roomId: room.roomId });
+          return;
+        }
+
+        if (room.status === "starting") {
+          // push countdown state
+          send(ws, "matchFound", {
             roomId: room.roomId,
+            totalQuestions: room.questions.length,
           });
+          send(ws, "matchStarting", { startCountdown: room.startCountdown });
           return;
         }
 
         if (room.status === "playing") {
           send(ws, "nextQuestion", {
-            roomId: room.roomId, // ✅ FIX
+            roomId: room.roomId,
             questionIndex: player.progress,
             question: room.questions[player.progress],
             totalQuestions: room.questions.length,
           });
-          send(ws, "scoreUpdate", {
-            roomId: room.roomId, // optional but consistent
-            scores: buildScores(room),
-          });
-          send(ws, "tick", {
-            roomId: room.roomId, // optional
-            remainingTime: room.remainingTime,
-          });
+          send(ws, "scoreUpdate", { scores: buildScores(room) });
+          send(ws, "tick", { remainingTime: room.remainingTime });
           return;
         }
       }
@@ -129,16 +164,20 @@ wss.on("connection", (ws) => {
 
       const level = data.level || "N5";
 
-      if (!queue[level].includes(data.userId)) {
-        queue[level].push(data.userId);
-      }
+      // prevent duplicate queue entries
+      if (!queue[level].includes(data.userId)) queue[level].push(data.userId);
 
-      if (queue[level].length >= 2) {
-        createMatch(level);
-      }
+      // run matchmaking safely
+      tryMatchmake(level);
       return;
     }
-    /* ---------- ANSWER ---------- */
+
+    /* ---------- LEAVE QUEUE ---------- */
+    if (data.type === "leaveQueue") {
+      removeFromQueue(data.userId);
+      return;
+    }
+
     /* ---------- ANSWER ---------- */
     if (data.type === "answer") {
       const room = rooms.get(data.roomId);
@@ -150,22 +189,17 @@ wss.on("connection", (ws) => {
       const qIndex = player.progress;
       const q = room.questions[qIndex];
 
-      // store answer
       player.answers[qIndex] = data.answerIndex;
-
-      if (q.answer === data.answerIndex) {
-        player.score++;
-      }
+      if (q.answer === data.answerIndex) player.score++;
 
       player.progress++;
 
-      broadcast(room, "scoreUpdate", {
-        scores: buildScores(room),
-      });
+      broadcast(room, "scoreUpdate", { scores: buildScores(room) });
 
       if (player.progress >= room.questions.length) {
         player.finished = true;
-        send(player.ws, "waitingOpponent");
+        player.finishedAt = Date.now();
+        send(player.ws, "waitingOpponent", { roomId: room.roomId });
 
         if (room.players.every((p) => p.finished)) {
           endMatch(room.roomId);
@@ -183,28 +217,64 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
-    if (activeConnection.get(ws.userId) === ws) {
-      activeConnection.delete(ws.userId);
+    const userId = ws.userId;
+    if (!userId) return;
+
+    if (activeConnection.get(userId) === ws) activeConnection.delete(userId);
+    clients.delete(userId);
+
+    removeFromQueue(userId);
+
+    const roomId = userRoom.get(userId);
+    if (roomId) {
+      const room = rooms.get(roomId);
+      // You can pick your policy here:
+      // - end immediately
+      // - give grace time to reconnect
+      if (room && room.status !== "ended") {
+        endMatch(roomId);
+      }
     }
-    clients.delete(ws.userId);
   });
 });
 
 /* =========================
    Match Flow
 ========================= */
+
+/**
+ * Returns true if a match was created and countdown started.
+ * Returns false if it couldn't create a match (missing sockets etc).
+ */
 async function createMatch(level) {
+  if (queue[level].length < 2) return false;
+
   const u1 = queue[level].shift();
   const u2 = queue[level].shift();
 
-  const ws1 = clients.get(u1);
-  const ws2 = clients.get(u2);
-  if (!ws1 || !ws2) return;
+  const ws1 = activeConnection.get(u1);
+  const ws2 = activeConnection.get(u2);
 
-  const questions = await Question.aggregate([
+  // If one disconnected or not active, requeue the other and abort
+  if (!ws1 || !ws2) {
+    if (ws1) queue[level].unshift(u1);
+    if (ws2) queue[level].unshift(u2);
+    return false;
+  }
+
+  const rawQuestions = await Question.aggregate([
     { $match: { level } },
     { $sample: { size: 5 } },
   ]);
+
+  const questions = rawQuestions.map((q) => {
+    const correctIndex = q.choices.findIndex((c) => c.correct);
+    return {
+      questionParts: q.questionParts,
+      options: q.choices.map((c) => c.text),
+      answer: correctIndex,
+    };
+  });
 
   const roomId = crypto.randomUUID().slice(0, 8);
 
@@ -216,6 +286,8 @@ async function createMatch(level) {
     remainingTime: 30,
     startCountdown: 3,
     questionIndex: 0,
+    startTimer: null,
+    timer: null,
     players: [
       {
         userId: u1,
@@ -224,6 +296,7 @@ async function createMatch(level) {
         progress: 0,
         finished: false,
         answers: [],
+        finishedAt: null,
       },
       {
         userId: u2,
@@ -232,6 +305,7 @@ async function createMatch(level) {
         progress: 0,
         finished: false,
         answers: [],
+        finishedAt: null,
       },
     ],
   };
@@ -239,28 +313,55 @@ async function createMatch(level) {
   rooms.set(roomId, room);
   userRoom.set(u1, roomId);
   userRoom.set(u2, roomId);
-
   broadcast(room, "matchFound", {
     roomId,
     totalQuestions: questions.length,
-    startCountdown: 3,
   });
 
-  const startTimer = setInterval(() => {
-    room.startCountdown--;
-    broadcast(room, "matchStarting", { startCountdown: room.startCountdown });
+  broadcast(room, "matchStarting", {
+    startCountdown: room.startCountdown,
+  });
 
-    if (room.startCountdown <= 0) {
-      clearInterval(startTimer);
-      startMatch(room);
-    }
-  }, 1000);
+  // ✅ Only one countdown interval per room
+  if (!room.startTimer) {
+    room.startTimer = setInterval(() => {
+      if (room.status !== "starting") {
+        clearInterval(room.startTimer);
+        room.startTimer = null;
+        return;
+      }
+
+      room.startCountdown--;
+
+      broadcast(room, "matchStarting", {
+        startCountdown: room.startCountdown,
+      });
+
+      if (room.startCountdown <= 0) {
+        clearInterval(room.startTimer);
+        room.startTimer = null;
+        startMatch(room);
+      }
+    }, 1000);
+  }
+
+  // IMPORTANT: DO NOT unlock here.
+  // Keep matchingInProgress[level] true while countdown is running.
+  return true;
 }
 
 function startMatch(room) {
+  if (!room || room.status !== "starting") return;
+
   room.status = "playing";
   room.questionIndex = 0;
   room.remainingTime = 30;
+
+  // ✅ Unlock matchmaking for this level now
+  matchingInProgress[room.level] = false;
+
+  // If more players are waiting, immediately try to match them
+  tryMatchmake(room.level);
 
   broadcast(room, "matchStart", {});
   broadcast(room, "nextQuestion", {
@@ -271,12 +372,16 @@ function startMatch(room) {
   });
 
   room.timer = setInterval(() => {
+    if (room.status !== "playing") {
+      clearInterval(room.timer);
+      room.timer = null;
+      return;
+    }
+
     room.remainingTime--;
     broadcast(room, "tick", { remainingTime: room.remainingTime });
 
-    if (room.remainingTime <= 0) {
-      endMatch(room.roomId);
-    }
+    if (room.remainingTime <= 0) endMatch(room.roomId);
   }, 1000);
 }
 
@@ -285,13 +390,22 @@ async function endMatch(roomId) {
   if (!room || room.status === "ended") return;
 
   room.status = "ended";
-  clearInterval(room.timer);
+
+  if (room.startTimer) {
+    clearInterval(room.startTimer);
+    room.startTimer = null;
+  }
+  if (room.timer) {
+    clearInterval(room.timer);
+    room.timer = null;
+  }
 
   const scores = buildScores(room);
+
   broadcast(room, "quizEnd", {
     scores,
     questions: room.questions.map((q) => ({
-      text: q.text,
+      questionParts: q.questionParts,
       options: q.options,
       correctAnswer: q.answer,
     })),
@@ -300,10 +414,13 @@ async function endMatch(roomId) {
     ),
   });
 
-  for (const p of room.players) {
-    userRoom.delete(p.userId);
-  }
+  for (const p of room.players) userRoom.delete(p.userId);
 
+  // Unlock matchmaking for this level (in case we ended during countdown)
+  matchingInProgress[room.level] = false;
+  tryMatchmake(room.level);
+
+  // --- Persist match results ---
   const players = room.players.map((p) => ({
     userId: p.userId,
     score: p.score,
@@ -315,12 +432,25 @@ async function endMatch(roomId) {
   let isDraw = false;
 
   const maxScore = Math.max(...players.map((p) => p.score));
-  const winners = players.filter((p) => p.score === maxScore);
+  const topPlayers = players.filter((p) => p.score === maxScore);
 
-  if (winners.length === 1) {
-    winnerId = winners[0].userId;
+  if (topPlayers.length === 1) {
+    winnerId = topPlayers[0].userId;
   } else {
-    isDraw = true;
+    // score tie
+    if (maxScore > 0) {
+      // speed tiebreaker
+      const [p1, p2] = topPlayers;
+
+      if (p1.finishedAt && p2.finishedAt) {
+        winnerId = p1.finishedAt < p2.finishedAt ? p1.userId : p2.userId;
+      } else {
+        isDraw = true;
+      }
+    } else {
+      // both scored 0 → draw
+      isDraw = true;
+    }
   }
 
   await Match.create({
@@ -337,7 +467,6 @@ async function endMatch(roomId) {
 
     const userA = await User.findById(players[0].userId);
     const userB = await User.findById(players[1].userId);
-
     if (!userA || !userB) return;
 
     const Ra = userA.ranks[level].rating;
@@ -370,14 +499,6 @@ async function endMatch(roomId) {
 
     await userA.save();
     await userB.save();
-  }
-
-  function getTier(rating) {
-    if (rating >= 2000) return "N1";
-    if (rating >= 1700) return "N2";
-    if (rating >= 1400) return "N3";
-    if (rating >= 1200) return "N4";
-    return "N5";
   }
 
   await updateRatings(players, winnerId, isDraw, room.level);

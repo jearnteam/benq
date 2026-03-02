@@ -24,15 +24,19 @@ export async function GET(req: NextRequest) {
     ]);
 
     // Shape for frontend
-    const formatted = questions.map((q) => ({
-      id: q._id.toString(),
-      q: q.text,
-      options: q.options.map((v: string, i: number) => ({
-        k: String.fromCharCode(65 + i), // A B C D
-        v,
-      })),
-      answer: String.fromCharCode(65 + q.answer),
-    }));
+    const formatted = questions.map((q) => {
+      const correctIndex = q.choices.findIndex((c: any) => c.correct);
+    
+      return {
+        id: q._id.toString(),
+        questionParts: q.questionParts,
+        options: q.choices.map((c: any, i: number) => ({
+          k: String.fromCharCode(65 + i), // A B C D
+          v: c.text,
+        })),
+        answer: String.fromCharCode(65 + correctIndex),
+      };
+    });
 
     return NextResponse.json({ questions: formatted });
   } catch (err) {

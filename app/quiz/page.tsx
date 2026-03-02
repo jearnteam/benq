@@ -1,11 +1,18 @@
 "use client";
+import { Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type Level = "N5" | "N4" | "N3" | "N2" | "N1";
 
+type QuestionPart = {
+  text: string;
+  underline: boolean;
+  blank: boolean;
+};
+
 type Question = {
   id: string;
-  q: string;
+  questionParts: QuestionPart[];
   options: { k: string; v: string }[];
   answer: string;
 };
@@ -156,7 +163,30 @@ export default function QuizPage() {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm space-y-4">
-          <div className="text-lg font-semibold text-black">{q.q}</div>
+          <div className="text-lg font-semibold text-black">
+            {q.questionParts.map((part, idx) => {
+              if (part.blank) {
+                return (
+                  <span
+                    key={idx}
+                    className="inline-block border-b-2 border-black mx-1 w-16"
+                  >
+                    &nbsp;
+                  </span>
+                );
+              }
+
+              if (part.underline) {
+                return (
+                  <span key={idx} className="underline">
+                    {part.text}
+                  </span>
+                );
+              }
+
+              return <span key={idx}>{part.text}</span>;
+            })}
+          </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
             {q.options.map((o) => (
@@ -214,7 +244,29 @@ export default function QuizPage() {
               className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm space-y-3"
             >
               <div className="font-semibold">
-                Q{idx + 1}. {q.q}
+                Q{idx + 1}.{" "}
+                {q.questionParts.map((part, pIdx) => {
+                  if (part.blank) {
+                    return (
+                      <span
+                        key={pIdx}
+                        className="inline-block border-b-2 border-black mx-1 w-16"
+                      >
+                        &nbsp;
+                      </span>
+                    );
+                  }
+
+                  if (part.underline) {
+                    return (
+                      <span key={pIdx} className="underline">
+                        {part.text}
+                      </span>
+                    );
+                  }
+
+                  return <span key={pIdx}>{part.text}</span>;
+                })}
               </div>
 
               <div className="space-y-2 text-sm">
@@ -237,9 +289,9 @@ export default function QuizPage() {
                       <span className="font-semibold">{o.k}.</span>
                       <span>{o.v}</span>
 
-                      {isCorrect && <span className="ml-auto">✅</span>}
+                      {isCorrect && <span className="ml-auto"><Check/></span>}
                       {!isCorrect && isUser && (
-                        <span className="ml-auto">❌</span>
+                        <span className="ml-auto"><X/></span>
                       )}
                     </div>
                   );

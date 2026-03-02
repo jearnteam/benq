@@ -10,7 +10,8 @@ export default function Home() {
           </h1>
 
           <p className="text-sm text-gray-600">
-            Learn consistently. Track your effort. Improve every day.
+            <span>Learn consistently. Track your effort.</span><br/>
+            <span>Improve every day.</span>
           </p>
 
           <AuthCard />

@@ -2,11 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import { LoaderCircle } from "lucide-react";
 
 const WS_URL = "wss://wsbenq.jearn.site/realtime";
 
-type Question = {
+type QuestionPart = {
   text: string;
+  underline: boolean;
+  blank: boolean;
+};
+
+type Question = {
+  questionParts: QuestionPart[];
   options: string[];
   answer: number;
 };
@@ -31,9 +38,13 @@ export default function MatchClient() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [totalQuestions, setTotalQuestions] = useState(0);
 
-  const [endQuestions, setEndQuestions] = useState<
-    { text: string; options: string[]; correctAnswer: number }[]
-  >([]);
+  type EndQuestion = {
+    questionParts: QuestionPart[];
+    options: string[];
+    correctAnswer: number;
+  };
+
+  const [endQuestions, setEndQuestions] = useState<EndQuestion[]>([]);
 
   const [endAnswers, setEndAnswers] = useState<Record<string, number[]>>({});
   const [rankSaved, setRankSaved] = useState(false);
@@ -51,6 +62,7 @@ export default function MatchClient() {
 
   useEffect(() => {
     if (!userId) return;
+    if (wsRef.current) return;
 
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
@@ -74,7 +86,7 @@ export default function MatchClient() {
       if (data.type === "matchFound") {
         setRoomId(data.roomId);
         setTotalQuestions(data.totalQuestions);
-        setStartCountdown(data.startCountdown ?? 3);
+        setStartCountdown(null);
         setStatus("starting");
         setRankSaved(false);
       }
@@ -150,11 +162,43 @@ export default function MatchClient() {
 
           setRankSaved(true);
         }
+
+        wsRef.current?.send(
+          JSON.stringify({
+            type: "leaveRoom",
+            roomId,
+            userId,
+          })
+        );
+
+        setRoomId("");
       }
     };
 
-    return () => ws.close();
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
   }, [userId]);
+
+  useEffect(() => {
+    const handleUnload = () => {
+      if (status === "matching" && wsRef.current) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "leaveQueue",
+            userId,
+          })
+        );
+      }
+    };
+
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, [status, userId]);
 
   const sendAnswer = (idx: number) => {
     if (!wsRef.current || isPassive) return;
@@ -211,14 +255,31 @@ export default function MatchClient() {
           <button
             className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium transition"
             onClick={() => {
+              // 🔥 FULL RESET
+              setQuestion(null);
+              setQuestionIndex(0);
+              setTotalQuestions(0);
+              setScores({});
+              setMyAnswers([]);
+              setOpponentAnswers([]);
+              setEndQuestions([]);
+              setEndAnswers({});
+              setAnswered(false);
+              setRemainingTime(null);
+              setStartCountdown(null);
+              setRoomId("");
+
               setStatus("matching");
-              wsRef.current?.send(
-                JSON.stringify({
-                  type: "joinQueue",
-                  userId,
-                  level,
-                })
-              );
+
+              if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(
+                  JSON.stringify({
+                    type: "joinQueue",
+                    userId,
+                    level,
+                  })
+                );
+              }
             }}
           >
             Start Match
@@ -229,7 +290,10 @@ export default function MatchClient() {
       {/* Matching */}
       {status === "matching" && (
         <div className="text-center space-y-4">
-          <div className="text-gray-600">⏳ Finding opponent...</div>
+          <div className="flex items-center justify-center gap-2 text-gray-600">
+            <LoaderCircle className="animate-spin" size={20} />
+            <span>Finding opponent...</span>
+          </div>
 
           <button
             onClick={() => {
@@ -249,7 +313,7 @@ export default function MatchClient() {
       )}
 
       {/* Countdown */}
-      {status === "starting" && (
+      {status === "starting" && startCountdown !== null && (
         <div className="text-center text-5xl font-bold text-emerald-600">
           {startCountdown}
         </div>
@@ -293,7 +357,28 @@ export default function MatchClient() {
 
           {/* Question */}
           <div className="text-xl font-semibold text-center">
-            {question?.text}
+            {question?.questionParts.map((part, idx) => {
+              if (part.blank) {
+                return (
+                  <span
+                    key={idx}
+                    className="inline-block border-b-2 border-black mx-1 w-16"
+                  >
+                    &nbsp;
+                  </span>
+                );
+              }
+
+              if (part.underline) {
+                return (
+                  <span key={idx} className="underline">
+                    {part.text}
+                  </span>
+                );
+              }
+
+              return <span key={idx}>{part.text}</span>;
+            })}
           </div>
 
           {/* Options */}
@@ -315,7 +400,10 @@ export default function MatchClient() {
       {/* Waiting */}
       {status === "waitingOpponent" && (
         <div className="text-center space-y-2">
-          <div className="text-lg font-medium">⏳ Waiting for opponent...</div>
+          <div className="flex items-center justify-center gap-2 text-gray-600">
+            <LoaderCircle className="animate-spin" size={20} />
+            <span>Waiting for opponent...</span>
+          </div>
           <div className="text-sm text-gray-600">
             You: {myScore} — Opponent: {opponentScore}
           </div>
@@ -355,7 +443,15 @@ export default function MatchClient() {
 
             <button
               onClick={() => {
-                setStatus("matching");
+                // cancel previous queue first
+                wsRef.current?.send(
+                  JSON.stringify({
+                    type: "leaveQueue",
+                    userId,
+                  })
+                );
+
+                // then join new queue
                 wsRef.current?.send(
                   JSON.stringify({
                     type: "joinQueue",
@@ -363,6 +459,8 @@ export default function MatchClient() {
                     level,
                   })
                 );
+
+                setStatus("matching");
               }}
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md"
             >
@@ -387,7 +485,29 @@ export default function MatchClient() {
                   className="border rounded-xl p-4 bg-white space-y-3"
                 >
                   <div className="font-semibold">
-                    Q{idx + 1}. {q.text}
+                    Q{idx + 1}.{" "}
+                    {q.questionParts.map((part, pIdx) => {
+                      if (part.blank) {
+                        return (
+                          <span
+                            key={pIdx}
+                            className="inline-block border-b-2 border-black mx-1 w-16"
+                          >
+                            &nbsp;
+                          </span>
+                        );
+                      }
+
+                      if (part.underline) {
+                        return (
+                          <span key={pIdx} className="underline">
+                            {part.text}
+                          </span>
+                        );
+                      }
+
+                      return <span key={pIdx}>{part.text}</span>;
+                    })}
                   </div>
 
                   <div className="space-y-2 text-sm">
