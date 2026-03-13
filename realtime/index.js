@@ -107,10 +107,14 @@ wss.on("connection", (ws) => {
 
         player.ws = ws;
 
-        if (room.status === "ended") {
+        if (room.status === "ended" && room.result) {
+          const r = room.result;
+
           send(ws, "quizEnd", {
-            roomId: room.roomId,
-            scores: buildScores(room),
+            scores: r.scores,
+            winnerId: r.winnerId,
+            isDraw: r.isDraw,
+            ratingChanges: r.ratingChanges,
             questions: room.questions.map((q) => ({
               questionParts: q.questionParts,
               options: q.options,
@@ -120,6 +124,7 @@ wss.on("connection", (ws) => {
               room.players.map((p) => [p.userId, p.answers])
             ),
           });
+
           return;
         }
 
@@ -395,6 +400,7 @@ async function endMatch(roomId) {
     clearInterval(room.startTimer);
     room.startTimer = null;
   }
+
   if (room.timer) {
     clearInterval(room.timer);
     room.timer = null;
@@ -402,30 +408,16 @@ async function endMatch(roomId) {
 
   const scores = buildScores(room);
 
-  broadcast(room, "quizEnd", {
-    scores,
-    questions: room.questions.map((q) => ({
-      questionParts: q.questionParts,
-      options: q.options,
-      correctAnswer: q.answer,
-    })),
-    playerAnswers: Object.fromEntries(
-      room.players.map((p) => [p.userId, p.answers])
-    ),
-  });
+  /* -----------------------------
+     Determine winner
+  ----------------------------- */
 
-  for (const p of room.players) userRoom.delete(p.userId);
-
-  // Unlock matchmaking for this level (in case we ended during countdown)
-  matchingInProgress[room.level] = false;
-  tryMatchmake(room.level);
-
-  // --- Persist match results ---
   const players = room.players.map((p) => ({
     userId: p.userId,
     score: p.score,
     correct: p.score,
     wrong: room.questions.length - p.score,
+    finishedAt: p.finishedAt,
   }));
 
   let winnerId = null;
@@ -437,9 +429,7 @@ async function endMatch(roomId) {
   if (topPlayers.length === 1) {
     winnerId = topPlayers[0].userId;
   } else {
-    // score tie
     if (maxScore > 0) {
-      // speed tiebreaker
       const [p1, p2] = topPlayers;
 
       if (p1.finishedAt && p2.finishedAt) {
@@ -448,10 +438,13 @@ async function endMatch(roomId) {
         isDraw = true;
       }
     } else {
-      // both scored 0 → draw
       isDraw = true;
     }
   }
+
+  /* -----------------------------
+     Save match
+  ----------------------------- */
 
   await Match.create({
     roomId,
@@ -462,12 +455,16 @@ async function endMatch(roomId) {
     isDraw,
   });
 
+  /* -----------------------------
+     Update ratings
+  ----------------------------- */
+
   async function updateRatings(players, winnerId, isDraw, level) {
     const K = 32;
 
     const userA = await User.findById(players[0].userId);
     const userB = await User.findById(players[1].userId);
-    if (!userA || !userB) return;
+    if (!userA || !userB) return {};
 
     const Ra = userA.ranks[level].rating;
     const Rb = userB.ranks[level].rating;
@@ -494,14 +491,65 @@ async function endMatch(roomId) {
       userB.ranks[level].wins++;
     }
 
+    const oldRa = Ra;
+    const oldRb = Rb;
+
     userA.ranks[level].rating = Math.round(Ra + K * (Sa - Ea));
     userB.ranks[level].rating = Math.round(Rb + K * (Sb - Eb));
 
+    const deltaA = userA.ranks[level].rating - oldRa;
+    const deltaB = userB.ranks[level].rating - oldRb;
+
     await userA.save();
     await userB.save();
+
+    return {
+      [userA._id.toString()]: deltaA,
+      [userB._id.toString()]: deltaB,
+    };
   }
 
-  await updateRatings(players, winnerId, isDraw, room.level);
+  const ratingChanges = await updateRatings(
+    players,
+    winnerId,
+    isDraw,
+    room.level
+  );
+
+  /* -----------------------------
+     Store result for reconnect
+  ----------------------------- */
+
+  room.result = {
+    scores,
+    winnerId,
+    isDraw,
+    ratingChanges,
+  };
+
+  /* -----------------------------
+     Send result to players
+  ----------------------------- */
+
+  broadcast(room, "quizEnd", {
+    scores,
+    winnerId,
+    isDraw,
+    ratingChanges,
+    questions: room.questions.map((q) => ({
+      questionParts: q.questionParts,
+      options: q.options,
+      correctAnswer: q.answer,
+    })),
+    playerAnswers: Object.fromEntries(
+      room.players.map((p) => [p.userId, p.answers])
+    ),
+  });
+
+  for (const p of room.players) userRoom.delete(p.userId);
+
+  matchingInProgress[room.level] = false;
+  tryMatchmake(room.level);
 
   rooms.delete(roomId);
 }

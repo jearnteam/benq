@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
-import { LoaderCircle } from "lucide-react";
+import {
+  Trophy,
+  Skull,
+  Handshake,
+  TrendingUp,
+  TrendingDown,
+  LoaderCircle,
+} from "lucide-react";
 
 const WS_URL = "wss://wsbenq.jearn.site/realtime";
 
@@ -45,9 +52,13 @@ export default function MatchClient() {
   };
 
   const [endQuestions, setEndQuestions] = useState<EndQuestion[]>([]);
-
+  const [winnerId, setWinnerId] = useState<string | null>(null);
+  const [isDraw, setIsDraw] = useState(false);
   const [endAnswers, setEndAnswers] = useState<Record<string, number[]>>({});
   const [rankSaved, setRankSaved] = useState(false);
+  const [ratingChanges, setRatingChanges] = useState<Record<string, number>>(
+    {}
+  );
   const [myAnswers, setMyAnswers] = useState<number[]>([]);
   const [opponentAnswers, setOpponentAnswers] = useState<number[]>([]);
 
@@ -136,6 +147,10 @@ export default function MatchClient() {
 
       if (data.type === "quizEnd") {
         setScores(data.scores || {});
+        setWinnerId(data.winnerId ?? null);
+        setIsDraw(data.isDraw ?? false);
+        setRatingChanges(data.ratingChanges || {});
+
         setRemainingTime(null);
         setStartCountdown(null);
         setQuestion(null);
@@ -227,6 +242,9 @@ export default function MatchClient() {
   const opponentId = Object.keys(scores).find((id) => id !== userId);
   const myScore = scores[userId] || 0;
   const opponentScore = opponentId ? scores[opponentId] || 0 : 0;
+  const myRatingDelta = ratingChanges[userId] ?? 0;
+
+  const result = isDraw ? "draw" : winnerId === userId ? "win" : "lose";
 
   return (
     <div className="max-w-xl mx-auto space-y-6 text-black">
@@ -413,19 +431,50 @@ export default function MatchClient() {
       {/* Ended */}
       {status === "ended" && (
         <div className="space-y-6">
-          <div className="text-center text-2xl font-bold">🏁 Match Over</div>
+          <div className="rounded-xl border p-6 text-center space-y-4 bg-white">
+            {result === "win" && (
+              <>
+                <Trophy className="mx-auto text-yellow-500" size={48} />
+                <div className="text-3xl font-bold text-yellow-600">
+                  VICTORY
+                </div>
+              </>
+            )}
 
-          {/* Score summary */}
-          <div className="bg-gray-50 border rounded-xl p-4 text-center space-y-2">
-            <div className="text-lg">
-              You:{" "}
-              <span className="font-semibold text-emerald-600">{myScore}</span>
+            {result === "lose" && (
+              <>
+                <Skull className="mx-auto text-red-500" size={48} />
+                <div className="text-3xl font-bold text-red-600">DEFEAT</div>
+              </>
+            )}
+
+            {result === "draw" && (
+              <>
+                <Handshake className="mx-auto text-gray-500" size={48} />
+                <div className="text-3xl font-bold text-gray-600">DRAW</div>
+              </>
+            )}
+
+            {/* rating change */}
+            <div className="flex items-center justify-center gap-2 text-lg font-semibold">
+              {myRatingDelta >= 0 ? (
+                <>
+                  <TrendingUp className="text-emerald-600" size={20} />
+                  <span className="text-emerald-600">
+                    +{myRatingDelta} rating
+                  </span>
+                </>
+              ) : (
+                <>
+                  <TrendingDown className="text-red-500" size={20} />
+                  <span className="text-red-500">{myRatingDelta} rating</span>
+                </>
+              )}
             </div>
-            <div className="text-lg">
-              Opponent:{" "}
-              <span className="font-semibold text-blue-600">
-                {opponentScore}
-              </span>
+
+            {/* final score */}
+            <div className="text-lg font-medium text-gray-700">
+              You {myScore} - {opponentScore} Opponent
             </div>
           </div>
 
